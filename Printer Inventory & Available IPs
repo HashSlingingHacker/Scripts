@@ -1,0 +1,101 @@
+[CmdletBinding()]
+Param (
+ [Parameter(Mandatory=$true)]
+ [string[]]$PrintServers = "Print Server Name"
+)
+
+$last_octet_range = [System.Collections.ArrayList](2..254)
+$subnet1 = "XXX.XXX.XXX."
+$subnet2 = "XXX.XXX.XXX."
+[System.Collections.ArrayList]$all_ip_range = @()
+
+foreach($i in $last_octet_range){
+    $ip_in_subnet1 = $subnet1 + $i
+    $all_ip_range.Add($ip_in_subnet1)
+}
+
+foreach($i in $last_octet_range){
+    $ip_in_subnet2 = $subnet2 + $i
+    $all_ip_range.Add($ip_in_subnet2)
+}
+
+[threading.thread]::CurrentThread.CurrentCulture = 'en-US'
+$Excel = New-Object -ComObject Excel.Application
+$Excel.Visible = $True
+$WorkBook = $Excel.Workbooks.Add()
+$WorkBook.worksheets.add()
+$Sheet = $WorkBook.Worksheets.Item(1)
+$Sheet.Name = "Printer Inventory"
+$Sheet.Cells.Item(1,1) = "Print Server"
+$Sheet.Cells.Item(1,2) = "Printer Name"
+$Sheet.Cells.Item(1,3) = "Location"
+$Sheet.Cells.Item(1,4) = "Comment"
+$Sheet.Cells.Item(1,5) = "IP Address"
+$Sheet.Cells.Item(1,6) = "Driver Name"
+$Sheet.Cells.Item(1,7) = "Driver Version"
+$Sheet.Cells.Item(1,8) = "Shared"
+$Sheet.Cells.Item(1,9) = "Share Name"
+$intRow = 2
+$range = $Sheet.UsedRange
+$range.Interior.ColorIndex = 40
+$range.Font.ColorIndex = 11
+$range.Font.Bold = $True
+
+ForEach ($PrintServer in $PrintServers)
+{ Write-Verbose "$(Get-Date): Working on $PrintServer..."
+ $Printers = Get-WmiObject Win32_Printer -ComputerName $PrintServer
+ ForEach ($Printer in $Printers)
+ {
+ If ($Printer.Name -notlike "Microsoft XPS*")
+ { $Sheet.Cells.Item($intRow, 1) = $PrintServer
+ $Sheet.Cells.Item($intRow, 2) = $Printer.Name
+ $Sheet.Cells.Item($intRow, 3) = $Printer.Location
+ $Sheet.Cells.Item($intRow, 4) = $Printer.Comment
+
+ If ($Printer.PortName -notlike "*\*")
+ { $Ports = Get-WmiObject Win32_TcpIpPrinterPort -Filter "name = '$($Printer.Portname)'" -ComputerName $Printserver
+ ForEach ($Port in $Ports)
+ {
+ $Sheet.Cells.Item($intRow, 5) = $Port.HostAddress
+ }
+ $ips = $Port.HostAddress
+ }
+
+foreach($i in $ips){
+    if($i -in $all_ip_range){
+    $all_ip_range.Remove($i)
+    }
+    }
+ }
+
+ $Drivers = Get-WmiObject Win32_PrinterDriver -Filter "__path like '%$($Printer.DriverName)%'" -ComputerName $Printserver
+ ForEach ($Driver in $Drivers)
+ { $Drive = $Driver.DriverPath.Substring(0,1)
+ $Sheet.Cells.Item($intRow, 7) = (Get-ItemProperty ($Driver.DriverPath.Replace("$Drive`:","\\$PrintServer\$Drive`$"))).VersionInfo.ProductVersion
+ }
+ $Sheet.Cells.Item($intRow, 6) = $Printer.DriverName
+ $Sheet.Cells.Item($intRow, 8) = $Printer.Shared
+ $Sheet.Cells.Item($intRow, 9) = $Printer.ShareName
+ $intRow ++
+ }
+ }
+
+$intRow ++
+$Sheet.Cells.Item($intRow,1) = "Printer inventory completed"
+$Sheet.Cells.Item($intRow,1).Font.Bold = $True
+$Sheet.Cells.Item($intRow,1).Interior.ColorIndex = 40
+$Sheet.Cells.Item($intRow,2).Interior.ColorIndex = 40
+$Sheet.Cells.Item($intRow,3).Interior.ColorIndex = 40
+
+$intRow++
+
+$intRow ++
+$Sheet.Cells.Item($intRow,1) = "List of available IPs"
+$Sheet.Cells.Item($intRow,1).Font.Bold = $True
+$Sheet.Cells.Item($intRow,1).Interior.ColorIndex = 40
+$Sheet.Cells.Item($intRow,2).Interior.ColorIndex = 40
+
+foreach ($ip in $all_ip_range){
+$intRow++
+$Sheet.Cells.Item($intRow,1)=$ip
+}
